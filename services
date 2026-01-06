@@ -1,0 +1,97 @@
+import { QuoteInput, QuoteResult, BreakdownItem } from '../types';
+import { PRICES, TIERS, MONTH_DISCOUNTS, LEVEL_NAMES } from '../constants';
+
+const round = (val: number) => Math.round(val);
+
+export const calculateQuote = (input: QuoteInput): QuoteResult => {
+  const messages: string[] = [];
+  const breakdown: BreakdownItem[] = [];
+
+  const tier = TIERS.find(t => input.pax >= t.min && input.pax <= t.max);
+  if (!tier) {
+    return {
+      ok: false, messages: ["Aforo fuera de rango (15-80 pax)."],
+      breakdown: [], subtotal: 0, extras: 0, totalList: 0, totalFinal: 0, pricePerPerson: 0, discountApplied: 0, cashDiscountApplied: 0, transferRequiredAmount: 0, details: input
+    };
+  }
+
+  // 1. Paquete Base (Tramos + Factor Nivel)
+  const extraPaxInTier = input.pax - tier.min;
+  const rawBase = tier.base + (extraPaxInTier * tier.perPerson);
+  const factor = PRICES.cqpFactor[input.cqp];
+  const packagePrice = rawBase * factor;
+  breakdown.push({ label: `Paquete ${LEVEL_NAMES[input.cqp]} (${tier.label})`, amount: round(packagePrice) });
+
+  // 2. Horas Extra (A partir de las incluidas según selección)
+  const hoursDiff = Math.max(0, input.hours - (input.cqp === 'eco' ? 5 : (input.cqp === 'std' ? (input.hours >= 7 ? 7 : 6) : (input.hours >= 8 ? 8 : 7))));
+  const hourlyRate = input.isMundial ? PRICES.extraHourMundial : PRICES.extraHour;
+  const extraHoursCost = hoursDiff * hourlyRate;
+  if (hoursDiff > 0) {
+    breakdown.push({ label: `Horas adicionales (${hoursDiff}h x $${hourlyRate})`, amount: round(extraHoursCost) });
+  }
+
+  // 3. Adicionales
+  let extras = 0;
+  if (input.addDJ) {
+    const djCost = PRICES.djBase + (Math.max(0, input.hours - 6) * PRICES.djExtraHour);
+    extras += djCost;
+    breakdown.push({ label: "Servicio DJ Pro", amount: djCost });
+  }
+  if (input.addBarman) {
+    const barmanCost = PRICES.barmanBase + (Math.max(0, input.hours - 6) * PRICES.barmanExtraHour);
+    extras += barmanCost;
+    breakdown.push({ label: "Servicio Barman Pro", amount: barmanCost });
+  }
+
+  // Alimentos
+  if (input.wantsFood) {
+    const amt = input.foodAmount || PRICES.foodBase;
+    extras += amt;
+    breakdown.push({ label: `Alimentos: ${input.foodConcept || 'Servicio General'}`, amount: amt });
+  }
+
+  if (input.wantsBar) {
+    extras += PRICES.bar[input.barType];
+    breakdown.push({ label: `Barra Libre ${input.barType.toUpperCase()}`, amount: PRICES.bar[input.barType] });
+  } else if (input.wantsShopper) {
+    extras += PRICES.shopper;
+    breakdown.push({ label: "Fee Shopper / Compra Asistida", amount: PRICES.shopper });
+  } else if (input.wantsThemed) {
+    extras += PRICES.themedSetup;
+    breakdown.push({ label: "Montaje Fiesta Temática", amount: PRICES.themedSetup });
+  }
+
+  // 4. Totales Comerciales
+  const netTotal = packagePrice + extraHoursCost + extras;
+  const totalList = netTotal * PRICES.inflationFactor;
+  
+  // Lógica de "No aplicable"
+  const monthDiscountRate = input.applyDiscount ? MONTH_DISCOUNTS[input.contractMonth] : 0;
+  const afterMonthDiscount = totalList * (1 - monthDiscountRate);
+  
+  const cashDiscountRate = input.isCash ? 0.15 : 0;
+  const totalFinal = afterMonthDiscount * (1 - cashDiscountRate);
+
+  if (input.pax > 50 && input.hours < 7) {
+    messages.push("Para este aforo normalmente se recomiendan más horas para una mejor fluidez del evento.");
+  }
+
+  return {
+    ok: true,
+    messages,
+    breakdown,
+    subtotal: round(packagePrice + extraHoursCost),
+    extras: round(extras),
+    totalList: round(totalList),
+    totalFinal: round(totalFinal),
+    pricePerPerson: round(totalFinal / input.pax),
+    discountApplied: monthDiscountRate,
+    cashDiscountApplied: cashDiscountRate,
+    transferRequiredAmount: input.wantsShopper ? PRICES.shopper + (input.estimatedSupplies || 0) : (input.wantsThemed ? PRICES.themedSetup + (input.themedBudget || 0) : 0),
+    details: input
+  };
+};
+
+export const formatCurrency = (value: number) => {
+  return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }).format(value);
+};
