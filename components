@@ -1,0 +1,98 @@
+import React, { useState } from 'react';
+import { GoogleGenAI } from '@google/genai';
+import { QuoteResult } from '../types';
+import { formatCurrency } from '../services/pricingEngine';
+import { LEVEL_NAMES } from '../constants';
+
+interface AISalesAssistantProps {
+  quote: QuoteResult;
+}
+
+const AISalesAssistant: React.FC<AISalesAssistantProps> = ({ quote }) => {
+  const [loading, setLoading] = useState(false);
+  const [suggestion, setSuggestion] = useState<string | null>(null);
+
+  const generateSalesPitch = async () => {
+    setLoading(true);
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const prompt = `Actúa como un experto cerrador de ventas para MANTRA Events.
+      Genera un pitch de venta elegante e irresistible para WhatsApp:
+      - Invitados: ${quote.details.pax} pax
+      - Experiencia: ${LEVEL_NAMES[quote.details.cqp]}
+      - Extras: ${quote.details.addDJ ? 'DJ, ' : ''}${quote.details.addBarman ? 'Barman, ' : ''}${quote.details.wantsThemed ? `Fiesta Temática (${formatCurrency(quote.details.themedBudget)}), ` : ''}
+      - Inversión de lista: ${formatCurrency(quote.totalList)}
+      - Ahorro Estratégico Hoy: ${formatCurrency(quote.totalList - quote.totalFinal)} (Mes + ${quote.details.isCash ? '15% Efectivo' : 'Anticipación'})
+      - Inversión Final: ${formatCurrency(quote.totalFinal)}
+      - P/P: ${formatCurrency(quote.pricePerPerson)}
+      
+      Justifica el valor de la exclusividad. Destaca que al contratar en este mes se conserva el beneficio todo el año. Tono: Alta Gama, Persuasivo, Conciso. Máximo 90 palabras.`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: prompt,
+      });
+
+      setSuggestion(response.text || "No se pudo conectar con el oráculo de ventas.");
+    } catch (error) {
+      setSuggestion("Error al contactar con el oráculo de ventas.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="bg-slate-900 rounded-[3rem] p-12 text-white shadow-3xl relative overflow-hidden group">
+      <div className="absolute top-0 right-0 w-48 h-48 bg-indigo-500/10 rounded-full blur-[100px] group-hover:scale-110 transition-transform duration-700"></div>
+      
+      <div className="relative z-10">
+        <h4 className="text-[11px] font-black mb-1 flex items-center gap-3 tracking-[0.3em] uppercase opacity-60">
+          IA Sales Concierge
+        </h4>
+        <p className="text-slate-600 text-[10px] font-black uppercase tracking-widest mb-10 italic">
+          Argumento Privado para Staff
+        </p>
+
+        {!suggestion && !loading && (
+          <button 
+            onClick={generateSalesPitch}
+            className="w-full bg-white text-slate-900 hover:bg-slate-100 transition-all py-5 rounded-3xl font-black text-xs uppercase tracking-widest shadow-2xl active:scale-95"
+          >
+            Generar Cierre Maestro
+          </button>
+        )}
+
+        {loading && (
+          <div className="flex flex-col items-center justify-center gap-4 py-6">
+            <div className="w-6 h-6 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin"></div>
+            <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400">Analizando Psicología de Venta...</span>
+          </div>
+        )}
+
+        {suggestion && (
+          <div className="space-y-8 animate-in fade-in slide-in-from-top-4 duration-500">
+            <div className="bg-white/5 rounded-[2rem] p-8 border border-white/10 shadow-inner">
+              <p className="text-sm leading-relaxed font-semibold text-slate-200 antialiased">"{suggestion}"</p>
+            </div>
+            <div className="flex justify-between items-center">
+              <button 
+                onClick={() => setSuggestion(null)}
+                className="text-[10px] font-black text-slate-600 uppercase hover:text-white transition-colors tracking-widest"
+              >
+                Limpiar
+              </button>
+              <button 
+                onClick={generateSalesPitch}
+                className="text-[10px] font-black text-indigo-400 uppercase hover:text-indigo-300 transition-colors tracking-widest"
+              >
+                Refinar Tono
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default AISalesAssistant;
